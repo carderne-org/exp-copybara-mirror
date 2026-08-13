@@ -89,6 +89,25 @@ jobs:
       - name: Run focused rehearsal tests
         run: node --test scripts/release-rehearsal.test.mjs
 
+      - name: Exercise resumable local fake publication
+        run: |
+          set -euo pipefail
+          if node scripts/release-rehearsal-apply.mjs \
+            --plan /tmp/release-rehearsal-plan.json \
+            --state /tmp/release-rehearsal-state.json \
+            --fail-after images; then
+            echo 'The injected fake publication failure unexpectedly succeeded.' >&2
+            exit 1
+          fi
+          node scripts/release-rehearsal-apply.mjs \
+            --plan /tmp/release-rehearsal-plan.json \
+            --state /tmp/release-rehearsal-state.json
+          cp /tmp/release-rehearsal-state.json /tmp/release-rehearsal-complete.json
+          node scripts/release-rehearsal-apply.mjs \
+            --plan /tmp/release-rehearsal-plan.json \
+            --state /tmp/release-rehearsal-state.json
+          cmp /tmp/release-rehearsal-complete.json /tmp/release-rehearsal-state.json
+
       - name: Prove planning is deterministic
         env:
           VERSION: ${{ inputs.version }}

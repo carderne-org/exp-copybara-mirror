@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { applyFakeRelease } from "./release-rehearsal-apply.mjs";
 import { buildPlan } from "./release-rehearsal-plan.mjs";
 import { assertStateUnchanged } from "./release-rehearsal-state.mjs";
 import { scanFile, scanRehearsal } from "./scan-release-rehearsal-safety.mjs";
@@ -44,6 +45,44 @@ test("builds a deterministic and realistic stable release plan", () => {
   for (const unsafeCommand of ["npm publish", "git push", "git tag", "helm push", "gh release create"]) {
     assert.equal(rendered.includes(unsafeCommand), false);
   }
+});
+
+test("resumes fake publication and remains byte-for-byte idempotent", () => {
+  const plan = buildPlan(options);
+  const interrupted = applyFakeRelease({ plan, failAfter: "images" });
+  const operation = interrupted.state.operations[options.idempotencyKey];
+  assert.equal(interrupted.failedAfter, "images");
+  assert.equal(operation.status, "in-progress");
+  assert.deepEqual(operation.completedSteps, ["npm", "images"]);
+
+  const resumed = applyFakeRelease({ plan, state: interrupted.state });
+  assert.equal(resumed.failedAfter, null);
+  assert.equal(resumed.state.operations[options.idempotencyKey].status, "complete");
+  assert.deepEqual(
+    resumed.state.operations[options.idempotencyKey].completedSteps,
+    ["npm", "images", "helm", "releases", "docs", "downstream"]
+  );
+  assert.ok(Object.keys(resumed.state.npm.versions).length >= 5);
+  assert.ok(Object.keys(resumed.state.images.tags).length >= 6);
+  assert.equal(Object.keys(resumed.state.helm.artifacts).length, 1);
+  assert.equal(Object.keys(resumed.state.releases.githubReleases).length, 1);
+  assert.equal(Object.keys(resumed.state.docs.refs).length, 1);
+  assert.equal(Object.keys(resumed.state.downstream.events).length, 1);
+
+  const beforeRetry = JSON.stringify(resumed.state);
+  const retried = applyFakeRelease({ plan, state: resumed.state });
+  assert.equal(JSON.stringify(retried.state), beforeRetry);
+});
+
+test("binds each idempotency key to one exact release plan", () => {
+  const plan = buildPlan(options);
+  const first = applyFakeRelease({ plan });
+  const changedPlan = structuredClone(plan);
+  changedPlan.images[0].tags = [...changedPlan.images[0].tags, "unexpected"];
+  assert.throws(
+    () => applyFakeRelease({ plan: changedPlan, state: first.state }),
+    /already bound to another plan/
+  );
 });
 
 test("rejects anything except the exact stable request identity", () => {

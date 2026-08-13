@@ -1,6 +1,6 @@
 # Fake stable release rehearsal
 
-`.github/workflows/release-rehearsal.yml` is a deliberately read-only stable release rehearsal. It validates an exact public SHA/ref pair, creates a deterministic local plan, checks static contracts around the real release workflows, and proves that relevant refs and GitHub Releases did not change.
+`.github/workflows/release-rehearsal.yml` is a deliberately read-only stable release rehearsal. It validates an exact public SHA/ref pair, creates a deterministic local plan, fake-publishes every channel into local state with an injected failure and retry, checks static contracts around the real release workflows, and proves that relevant refs and GitHub Releases did not change.
 
 It cannot publish packages, images, charts, docs, releases, tags, attestations, or downstream events. It has only `contents: read`, does not use secrets or environments, and never calls a reusable publication workflow.
 
@@ -46,4 +46,4 @@ node scripts/release-rehearsal-plan.mjs \
 
 ## Coverage and gaps
 
-The plan covers package versions and Changesets-style tags, release/image tags, image repository names, Helm chart and OCI identity, release-note source digests, docs ref intent, and downstream event payloads. Package packing, image builds, Helm dependency/build/package checks, trusted publication, registry conflict checks, attestations, receiver idempotency, and docs rendering are intentionally not executed.
+The plan and local fake state cover package versions and Changesets-style tags, release/image tags, image repository names, Helm chart and OCI identity, release-note source digests, docs ref intent, downstream event payloads, interrupted-run resumption, and byte-for-byte idempotent retries. Package packing, image builds, Helm dependency/build/package checks, trusted publication, real registry conflict checks, attestations, downstream receiver execution, and docs rendering are intentionally not executed.
