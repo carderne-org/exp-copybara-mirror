@@ -24,33 +24,69 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          EVENT_ACTION: ${{ github.event.action }}
-          EVENT_URL: ${{ github.event.pull_request.html_url }}
         run: |
           set -euo pipefail
-          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] && (( PR_NUMBER > 0 ))
           [[ "$EVENT_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$EVENT_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
-          current_main="$(gh api repos/${GITHUB_REPOSITORY}/git/ref/heads/main --jq .object.sha)"
-          test "$current_main" = "$EVENT_BASE_SHA"
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
-            | jq -e --arg expected "$EVENT_HEAD_SHA" \
-            '.state == "open" and .base.ref == "main" and .head.sha == $expected' \
-            | grep -qx true
+          [[ "$EVENT_HEAD_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          jq -e \
+            --arg expected_base "$EVENT_BASE_SHA" \
+            --arg expected_head "$EVENT_HEAD_SHA" \
+            --arg expected_head_repository "$EVENT_HEAD_REPOSITORY" \
+            '.state == "open" and .base.ref == "main" and .base.sha == $expected_base and .head.sha == $expected_head and .head.repo.full_name == $expected_head_repository' \
+            <<<"$pr_json" >/dev/null
+
+          raw_title="$(jq -r '.title' <<<"$pr_json")"
+          approved_title="$(
+            RAW_TITLE="$raw_title" python3 -c '
+          import os, unicodedata
+          value = " ".join(os.environ["RAW_TITLE"].split())
+          if not value or len(value) > 256:
+              raise SystemExit("public PR title must contain 1 to 256 normalized characters")
+          if any(unicodedata.category(character).startswith("C") for character in value):
+              raise SystemExit("public PR title contains a control or format character")
+          print(value)
+          '
+          )"
+
+          git init public
+          git -C public remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C public fetch --no-tags origin \
+            "refs/heads/main:refs/remotes/public-main" \
+            "refs/pull/${PR_NUMBER}/head:refs/remotes/pr-head"
+          accepted_base="$(git -C public rev-parse refs/remotes/public-main)"
+          accepted_head="$(git -C public rev-parse refs/remotes/pr-head)"
+          test "$accepted_base" = "$EVENT_BASE_SHA"
+          test "$accepted_head" = "$EVENT_HEAD_SHA"
+
+          parent_tree="$(git -C public rev-parse "${accepted_base}^{tree}")"
+          result_tree="$(git -C public merge-tree --write-tree "$accepted_base" "$accepted_head")"
+          [[ "$parent_tree" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$result_tree" =~ ^[0-9a-f]{40}$ ]]
+          candidate_digest="$(
+            printf 'public-pr-candidate-v1\n%s\n%s\n' "$parent_tree" "$result_tree" | sha256sum | cut -d' ' -f1
+          )"
+          [[ "$candidate_digest" =~ ^[0-9a-f]{64}$ ]]
+
           payload="$(jq -cn \
             --arg repository "$GITHUB_REPOSITORY" \
             --arg number "$PR_NUMBER" \
-            --arg action "$EVENT_ACTION" \
-            --arg base_sha "$EVENT_BASE_SHA" \
-            --arg head_sha "$EVENT_HEAD_SHA" \
+            --arg base_sha "$accepted_base" \
+            --arg accepted_head_sha "$accepted_head" \
             --arg head_repository "$EVENT_HEAD_REPOSITORY" \
-            --arg url "$EVENT_URL" \
-            '{repository:$repository, number:($number|tonumber), action:$action, base_sha:$base_sha, head_sha:$head_sha, head_repository:$head_repository, url:$url}')"
+            --arg approved_title "$approved_title" \
+            --arg parent_tree "$parent_tree" \
+            --arg result_tree "$result_tree" \
+            --arg candidate_digest "$candidate_digest" \
+            '{repository:$repository, number:($number|tonumber), base_sha:$base_sha, accepted_head_sha:$accepted_head_sha, head_repository:$head_repository, approved_title:$approved_title, parent_tree:$parent_tree, result_tree:$result_tree, candidate_digest:$candidate_digest}')"
           echo "payload=$payload" >> "$GITHUB_OUTPUT"
 
   dispatch:
     needs: inspect
-    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
+    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_PUBLIC_PR_FLOW == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -62,16 +98,18 @@ jobs:
           app-id: ${{ vars.PUBLICATION_APP_ID }}
           private-key: ${{ secrets.PUBLICATION_APP_PRIVATE_KEY }}
           owner: carderne-org
-          repositories: exp-super-mono,exp-super-mirror
+          repositories: ${{ vars.MONO_REPOSITORIES }}
           permission-contents: write
 
       - name: Dispatch the immutable PR snapshot
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          MONO_REPOSITORY: ${{ vars.MONO_REPOSITORY }}
           PAYLOAD: ${{ needs.inspect.outputs.payload }}
         run: |
           set -euo pipefail
+          [[ "$MONO_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
           jq -n --argjson client_payload "$PAYLOAD" \
             '{event_type:"public-pr", client_payload:$client_payload}' > dispatch.json
-          gh api repos/carderne-org/exp-super-mono/dispatches \
+          gh api "repos/${MONO_REPOSITORY}/dispatches" \
             --method POST --input dispatch.json

@@ -1,0 +1,26 @@
+name: Public PR landed validation
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'carderne-org/exp-super-mirror'
+    name: public-pr-landed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the landed public commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 2
+
+      - name: Validate the public commit
+        run: |
+          set -euo pipefail
+          git fsck --strict
+          test "$(git show -s --format=%H HEAD)" = "$GITHUB_SHA"
+          test -n "$(git show -s --format=%s HEAD)"
