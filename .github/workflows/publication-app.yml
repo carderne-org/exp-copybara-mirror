@@ -46,6 +46,7 @@ jobs:
           owner: carderne-org
           repositories: exp-super-mirror
           permission-contents: write
+          permission-workflows: write
 
       - name: Publish the exact candidate
         env:
