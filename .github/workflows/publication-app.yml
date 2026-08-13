@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   publish:
-    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
+    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_PUBLIC_SYNC == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Validate publication inputs
@@ -45,6 +45,7 @@ jobs:
           private-key: ${{ secrets.PUBLICATION_APP_PRIVATE_KEY }}
           owner: carderne-org
           repositories: exp-super-mirror
+          permission-contents: write
 
       - name: Publish the exact candidate
         env:
@@ -67,3 +68,28 @@ jobs:
           test "$main_sha" = "$EXPECTED_BASE_SHA"
           git push origin "$candidate_sha:refs/heads/main"
           echo "Published $candidate_sha to main."
+
+      - name: Clean up the exact candidate ref
+        if: always() && steps.app-token.outcome == 'success'
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_REF" =~ ^rehearsal/[A-Za-z0-9._/-]+$ ]]
+          [[ "$CANDIDATE_REF" != *..* ]]
+          [[ "$CANDIDATE_REF" != *//* ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init cleanup
+          git -C cleanup remote add origin \
+            "https://x-access-token:${APP_TOKEN}@github.com/carderne-org/exp-super-mirror.git"
+          remote_candidate="$(git -C cleanup ls-remote --refs origin "refs/heads/$CANDIDATE_REF" | cut -f1)"
+          if [[ -z "$remote_candidate" ]]; then
+            echo "Candidate ref $CANDIDATE_REF is already absent."
+          elif [[ "$remote_candidate" == "$EXPECTED_SHA" ]]; then
+            git -C cleanup push origin ":refs/heads/$CANDIDATE_REF"
+          else
+            echo "Candidate ref $CANDIDATE_REF moved to $remote_candidate; leaving it in place." >&2
+            exit 1
+          fi
