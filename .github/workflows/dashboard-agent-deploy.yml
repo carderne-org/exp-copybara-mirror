@@ -19,6 +19,7 @@ permissions: {}
 
 jobs:
   deploy:
+    if: github.repository == 'triggerdotdev/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
     name: Deploy dashboard agent (${{ matrix.environment }})
     runs-on: ubuntu-latest
     strategy:
