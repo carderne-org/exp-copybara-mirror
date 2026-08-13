@@ -11,14 +11,32 @@ on:
         description: Expected public commit SHA
         required: true
         type: string
+      expected_base_sha:
+        description: Public main SHA that the candidate must directly follow
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   publish:
+    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Validate publication inputs
+        env:
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_BASE_SHA: ${{ inputs.expected_base_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_REF" =~ ^rehearsal/[A-Za-z0-9._/-]+$ ]]
+          [[ "$CANDIDATE_REF" != *..* ]]
+          [[ "$CANDIDATE_REF" != *//* ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
       - name: Create publication App token
         id: app-token
         uses: actions/create-github-app-token@v2
@@ -33,6 +51,7 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           CANDIDATE_REF: ${{ inputs.candidate_ref }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_BASE_SHA: ${{ inputs.expected_base_sha }}
         run: |
           set -euo pipefail
           git init repo
@@ -41,7 +60,10 @@ jobs:
           git fetch --no-tags origin "refs/heads/${CANDIDATE_REF}:refs/remotes/candidate"
           candidate_sha="$(git rev-parse refs/remotes/candidate)"
           test "$candidate_sha" = "$EXPECTED_SHA"
+          candidate_parent="$(git rev-list --parents -n 1 "$candidate_sha" | cut -d' ' -f2)"
+          test "$candidate_parent" = "$EXPECTED_BASE_SHA"
           git fetch --no-tags origin refs/heads/main:refs/remotes/main
-          git merge-base --is-ancestor refs/remotes/main "$candidate_sha"
+          main_sha="$(git rev-parse refs/remotes/main)"
+          test "$main_sha" = "$EXPECTED_BASE_SHA"
           git push origin "$candidate_sha:refs/heads/main"
           echo "Published $candidate_sha to main."

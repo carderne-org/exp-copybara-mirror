@@ -1,0 +1,75 @@
+name: Public PR intake
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  inspect:
+    if: github.repository == 'carderne-org/exp-super-mirror'
+    runs-on: ubuntu-latest
+    outputs:
+      payload: ${{ steps.validate.outputs.payload }}
+    steps:
+      - name: Validate the immutable PR snapshot
+        id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$EVENT_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EVENT_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          current_main="$(gh api repos/${GITHUB_REPOSITORY}/git/ref/heads/main --jq .object.sha)"
+          test "$current_main" = "$EVENT_BASE_SHA"
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            | jq -e --arg expected "$EVENT_HEAD_SHA" \
+            '.state == "open" and .base.ref == "main" and .head.sha == $expected' \
+            | grep -qx true
+          payload="$(jq -cn \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg number "$PR_NUMBER" \
+            --arg action "${{ github.event.action }}" \
+            --arg base_sha "$EVENT_BASE_SHA" \
+            --arg head_sha "$EVENT_HEAD_SHA" \
+            --arg head_repository "$EVENT_HEAD_REPOSITORY" \
+            --arg url "${{ github.event.pull_request.html_url }}" \
+            '{repository:$repository, number:($number|tonumber), action:$action, base_sha:$base_sha, head_sha:$head_sha, head_repository:$head_repository, url:$url}')"
+          echo "payload=$payload" >> "$GITHUB_OUTPUT"
+
+  dispatch:
+    needs: inspect
+    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Create publication App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.PUBLICATION_APP_ID }}
+          private-key: ${{ secrets.PUBLICATION_APP_PRIVATE_KEY }}
+          owner: carderne-org
+          repositories: exp-super-mono,exp-super-mirror
+          permission-actions: write
+
+      - name: Dispatch the immutable PR snapshot
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PAYLOAD: ${{ needs.inspect.outputs.payload }}
+        run: |
+          set -euo pipefail
+          jq -n --argjson client_payload "$PAYLOAD" \
+            '{event_type:"public-pr", client_payload:$client_payload}' > dispatch.json
+          gh api repos/carderne-org/exp-super-mono/dispatches \
+            --method POST --input dispatch.json
