@@ -24,6 +24,8 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_URL: ${{ github.event.pull_request.html_url }}
         run: |
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
@@ -38,11 +40,11 @@ jobs:
           payload="$(jq -cn \
             --arg repository "$GITHUB_REPOSITORY" \
             --arg number "$PR_NUMBER" \
-            --arg action "${{ github.event.action }}" \
+            --arg action "$EVENT_ACTION" \
             --arg base_sha "$EVENT_BASE_SHA" \
             --arg head_sha "$EVENT_HEAD_SHA" \
             --arg head_repository "$EVENT_HEAD_REPOSITORY" \
-            --arg url "${{ github.event.pull_request.html_url }}" \
+            --arg url "$EVENT_URL" \
             '{repository:$repository, number:($number|tonumber), action:$action, base_sha:$base_sha, head_sha:$head_sha, head_repository:$head_repository, url:$url}')"
           echo "payload=$payload" >> "$GITHUB_OUTPUT"
 
