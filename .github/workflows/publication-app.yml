@@ -1,0 +1,47 @@
+name: Publish exact candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Public candidate ref containing the prevalidated commit
+        required: true
+        type: string
+      expected_sha:
+        description: Expected public commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create publication App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.PUBLICATION_APP_ID }}
+          private-key: ${{ secrets.PUBLICATION_APP_PRIVATE_KEY }}
+          owner: carderne-org
+          repositories: exp-super-mirror
+
+      - name: Publish the exact candidate
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          git init repo
+          cd repo
+          git remote add origin "https://x-access-token:${APP_TOKEN}@github.com/carderne-org/exp-super-mirror.git"
+          git fetch --no-tags origin "refs/heads/${CANDIDATE_REF}:refs/remotes/candidate"
+          candidate_sha="$(git rev-parse refs/remotes/candidate)"
+          test "$candidate_sha" = "$EXPECTED_SHA"
+          git fetch --no-tags origin refs/heads/main:refs/remotes/main
+          git merge-base --is-ancestor refs/remotes/main "$candidate_sha"
+          git push origin "$candidate_sha:refs/heads/main"
+          echo "Published $candidate_sha to main."
