@@ -25,7 +25,7 @@ jobs:
     #   new commit while labeled -> update
     #   label removed / PR closed -> destroy
     if: >-
-      github.repository == 'carderne/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true' &&
+      github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
         (github.event.action == 'labeled' && github.event.label.name == 'preview') ||

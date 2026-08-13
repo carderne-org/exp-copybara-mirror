@@ -19,7 +19,7 @@ permissions: {}
 
 jobs:
   deploy:
-    if: github.repository == 'carderne/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
+    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
     name: Deploy dashboard agent (${{ matrix.environment }})
     runs-on: ubuntu-latest
     strategy:

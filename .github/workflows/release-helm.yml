@@ -69,7 +69,7 @@ jobs:
     # publishing the chart to GHCR — e.g. forks/mirrors that lack write_package
     # on the owner's charts namespace. Defaults to enabled; the lint-and-test
     # job above always runs regardless.
-    if: ${{ github.repository == 'carderne/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true' && vars.ENABLE_HELM_PRERELEASE != 'false' }}
+    if: ${{ github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true' && vars.ENABLE_HELM_PRERELEASE != 'false' }}
     runs-on: warp-ubuntu-latest-x64-2x
     permissions:
       contents: write # for gh-release
