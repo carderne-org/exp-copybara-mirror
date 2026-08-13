@@ -1,0 +1,138 @@
+name: Fake stable release rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact stable version already present in package manifests and Chart.yaml
+        required: true
+        type: string
+      public_sha:
+        description: Full public commit SHA to rehearse
+        required: true
+        type: string
+      public_ref:
+        description: Full public branch ref that must resolve exactly to public_sha
+        required: true
+        type: string
+      mode:
+        description: Release mode (stable only)
+        required: true
+        type: choice
+        options: [stable]
+      idempotency_key:
+        description: Must be <version>:<public_sha>
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rehearsal-${{ inputs.idempotency_key }}
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    if: vars.REHEARSAL_ENABLE_RELEASE_REHEARSAL == 'true'
+    name: Read-only public release plan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the exact public SHA without credentials
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.public_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch public main history locally
+        run: git fetch --no-tags origin refs/heads/main:refs/remotes/release-rehearsal/main
+
+      - name: Generate the deterministic local-only plan
+        env:
+          VERSION: ${{ inputs.version }}
+          PUBLIC_SHA: ${{ inputs.public_sha }}
+          PUBLIC_REF: ${{ inputs.public_ref }}
+          MODE: ${{ inputs.mode }}
+          IDEMPOTENCY_KEY: ${{ inputs.idempotency_key }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/release-rehearsal-plan.mjs \
+            --root . \
+            --version "$VERSION" \
+            --public-sha "$PUBLIC_SHA" \
+            --public-ref "$PUBLIC_REF" \
+            --mode "$MODE" \
+            --idempotency-key "$IDEMPOTENCY_KEY" \
+            --repository "$REPOSITORY" \
+            --remote origin \
+            --verify-remote \
+            --output /tmp/release-rehearsal-plan.json
+
+      - name: Snapshot relevant remote refs and Releases before checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          node scripts/release-rehearsal-state.mjs capture \
+            --plan /tmp/release-rehearsal-plan.json \
+            --repository "$REPOSITORY" \
+            --output /tmp/release-rehearsal-before.json
+
+      - name: Validate safety denylist and publication contracts
+        run: |
+          node scripts/scan-release-rehearsal-safety.mjs --root .
+          node scripts/validate-release-rehearsal.mjs --root .
+
+      - name: Run focused rehearsal tests
+        run: node --test scripts/release-rehearsal.test.mjs
+
+      - name: Prove planning is deterministic
+        env:
+          VERSION: ${{ inputs.version }}
+          PUBLIC_SHA: ${{ inputs.public_sha }}
+          PUBLIC_REF: ${{ inputs.public_ref }}
+          MODE: ${{ inputs.mode }}
+          IDEMPOTENCY_KEY: ${{ inputs.idempotency_key }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/release-rehearsal-plan.mjs \
+            --root . \
+            --version "$VERSION" \
+            --public-sha "$PUBLIC_SHA" \
+            --public-ref "$PUBLIC_REF" \
+            --mode "$MODE" \
+            --idempotency-key "$IDEMPOTENCY_KEY" \
+            --repository "$REPOSITORY" \
+            --remote origin \
+            --verify-remote \
+            --output /tmp/release-rehearsal-plan-second.json
+          cmp /tmp/release-rehearsal-plan.json /tmp/release-rehearsal-plan-second.json
+
+      - name: Snapshot and prove no remote release state changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          node scripts/release-rehearsal-state.mjs capture \
+            --plan /tmp/release-rehearsal-plan.json \
+            --repository "$REPOSITORY" \
+            --output /tmp/release-rehearsal-after.json
+          node scripts/release-rehearsal-state.mjs compare \
+            --before /tmp/release-rehearsal-before.json \
+            --after /tmp/release-rehearsal-after.json
+
+      - name: Prove the source checkout is unchanged
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+
+      - name: Write rehearsal summary
+        env:
+          PLAN: /tmp/release-rehearsal-plan.json
+        run: |
+          node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.env.PLAN));const lines=["# Fake stable release rehearsal","","No publication or remote mutation was performed.","",`- Version: ${p.request.version}`,`- Public SHA: ${p.request.publicSha}`,`- Packages planned: ${p.packageRelease.packages.length}`,`- Images planned: ${p.images.length}`,`- Plan digest: ${p.releases.unified.notes.deterministicInputSha256}`];fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join("\n")+"\n")'
