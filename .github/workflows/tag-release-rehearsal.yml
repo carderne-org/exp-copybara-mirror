@@ -42,7 +42,6 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
           git checkout --detach "$PUBLIC_SHA"
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags origin refs/heads/main:refs/remotes/rehearsal/main
 
       - name: Validate the exact public release input
         env:
@@ -58,7 +57,7 @@ jobs:
           test "$IDEMPOTENCY_KEY" = "$VERSION:$PUBLIC_SHA"
           test "$(git rev-parse HEAD)" = "$PUBLIC_SHA"
           test "$(git rev-parse "$PUBLIC_REF")" = "$PUBLIC_SHA"
-          git merge-base --is-ancestor "$PUBLIC_SHA" refs/remotes/rehearsal/main
+          git merge-base --is-ancestor "$PUBLIC_SHA" refs/remotes/origin/main
 
       - name: Generate the exact public tag and Release plan
         env:
