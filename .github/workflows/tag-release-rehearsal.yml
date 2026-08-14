@@ -1,0 +1,142 @@
+name: Rehearse public tags and Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact stable version already present at the public SHA
+        required: true
+        type: string
+      public_sha:
+        description: Full public commit SHA to tag and release
+        required: true
+        type: string
+      public_ref:
+        description: Full public branch ref that must resolve exactly to public_sha
+        required: true
+        type: string
+      idempotency_key:
+        description: Must be <version>:<public_sha>
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: public-tag-release-rehearsal-${{ inputs.idempotency_key }}
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    if: vars.REHEARSAL_ENABLE_RELEASE_TAG_RELEASES == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the exact public SHA without submodules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_SHA: ${{ inputs.public_sha }}
+        run: |
+          set -euo pipefail
+          git clone --no-checkout --no-recurse-submodules \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+          git checkout --detach "$PUBLIC_SHA"
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags origin refs/heads/main:refs/remotes/rehearsal/main
+
+      - name: Validate the exact public release input
+        env:
+          VERSION: ${{ inputs.version }}
+          PUBLIC_SHA: ${{ inputs.public_sha }}
+          PUBLIC_REF: ${{ inputs.public_ref }}
+          IDEMPOTENCY_KEY: ${{ inputs.idempotency_key }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$PUBLIC_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PUBLIC_REF" =~ ^refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]
+          test "$IDEMPOTENCY_KEY" = "$VERSION:$PUBLIC_SHA"
+          test "$(git rev-parse HEAD)" = "$PUBLIC_SHA"
+          test "$(git rev-parse "$PUBLIC_REF")" = "$PUBLIC_SHA"
+          git merge-base --is-ancestor "$PUBLIC_SHA" refs/remotes/rehearsal/main
+
+      - name: Generate the exact public tag and Release plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          PUBLIC_SHA: ${{ inputs.public_sha }}
+          PUBLIC_REF: ${{ inputs.public_ref }}
+          IDEMPOTENCY_KEY: ${{ inputs.idempotency_key }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node scripts/release-rehearsal-plan.mjs \
+            --root . \
+            --version "$VERSION" \
+            --public-sha "$PUBLIC_SHA" \
+            --public-ref "$PUBLIC_REF" \
+            --mode stable \
+            --idempotency-key "$IDEMPOTENCY_KEY" \
+            --repository "$REPOSITORY" \
+            --remote origin \
+            --verify-remote \
+            --output /tmp/tag-release-rehearsal-plan.json
+          jq -r '[
+            .packageRelease.packages[].gitTag,
+            .releases.unified.gitTag,
+            .releases.dockerTriggerTag,
+            .helm.gitTag
+          ] | unique[]' /tmp/tag-release-rehearsal-plan.json > /tmp/tag-release-rehearsal-tags.txt
+
+      - name: Create or verify exact public tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_SHA: ${{ inputs.public_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            existing="$(gh api "repos/${REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+            if test -n "$existing"; then
+              test "$existing" = "$PUBLIC_SHA"
+              continue
+            fi
+            gh api "repos/${REPOSITORY}/git/refs" --method POST \
+              -f "ref=refs/tags/${tag}" -f "sha=${PUBLIC_SHA}" >/dev/null
+          done < /tmp/tag-release-rehearsal-tags.txt
+
+      - name: Create or verify public Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          PUBLIC_SHA: ${{ inputs.public_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for tag in "v${VERSION}" "helm-v${VERSION}"; do
+            if gh release view "$tag" --repo "$REPOSITORY" >/dev/null 2>&1; then
+              continue
+            fi
+            if test "$tag" = "v${VERSION}"; then
+              title="trigger.dev v${VERSION}"
+            else
+              title="Helm Chart ${VERSION}"
+            fi
+            gh release create "$tag" --repo "$REPOSITORY" --target "$PUBLIC_SHA" \
+              --title "$title" \
+              --notes "Rehearsal release created from public commit ${PUBLIC_SHA}. No packages, images, charts, docs, or downstream events were published."
+          done
+
+      - name: Verify tags and Releases target the public SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          PUBLIC_SHA: ${{ inputs.public_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            test "$(gh api "repos/${REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha')" = "$PUBLIC_SHA"
+          done < /tmp/tag-release-rehearsal-tags.txt
+          gh release view "v${VERSION}" --repo "$REPOSITORY" >/dev/null
+          gh release view "helm-v${VERSION}" --repo "$REPOSITORY" >/dev/null
