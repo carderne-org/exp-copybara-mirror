@@ -38,12 +38,11 @@ jobs:
     name: Read-only public release plan
     runs-on: ubuntu-latest
     steps:
-      - name: Check out the exact public SHA without credentials
+      - name: Check out the exact public SHA
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.public_sha }}
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Fetch public main history locally
         run: git fetch --no-tags origin refs/heads/main:refs/remotes/release-rehearsal/main
