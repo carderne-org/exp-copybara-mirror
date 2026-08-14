@@ -25,7 +25,8 @@ export function validateWorkflowSafety(path) {
   }
   requireText(source, "permissions:\n  contents: read", path);
   requireText(source, "vars.REHEARSAL_ENABLE_RELEASE_REHEARSAL == 'true'", path);
-  requireText(source, "persist-credentials: false", path);
+  requireText(source, "--no-recurse-submodules", path);
+  requireText(source, 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"', path);
 
   const usesPublicationApp = source.includes("secrets.PUBLICATION_APP_PRIVATE_KEY");
   if (usesPublicationApp) {
