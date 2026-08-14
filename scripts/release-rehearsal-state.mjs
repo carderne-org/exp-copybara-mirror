@@ -30,9 +30,13 @@ function gitEnvironment() {
   if (!token) return process.env;
   return {
     ...process.env,
-    GIT_CONFIG_COUNT: "1",
+    // Clear checkout's persisted authorization header before adding this
+    // command's token. Git sends duplicate Authorization headers otherwise.
+    GIT_CONFIG_COUNT: "2",
     GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
-    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_KEY_1: "http.https://github.com/.extraheader",
+    GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
   };
 }
 
