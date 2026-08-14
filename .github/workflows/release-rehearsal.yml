@@ -44,6 +44,7 @@ jobs:
           ref: ${{ inputs.public_sha }}
           fetch-depth: 0
           persist-credentials: false
+          submodules: false
 
       - name: Fetch public main history locally
         run: git fetch --no-tags origin refs/heads/main:refs/remotes/release-rehearsal/main
