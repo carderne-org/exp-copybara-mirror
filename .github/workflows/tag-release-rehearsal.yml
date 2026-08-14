@@ -95,8 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           while IFS= read -r tag; do
-            existing="$(gh api "repos/${REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
-            if test -n "$existing"; then
+            if existing="$(gh api "repos/${REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null)"; then
               test "$existing" = "$PUBLIC_SHA"
               continue
             fi
