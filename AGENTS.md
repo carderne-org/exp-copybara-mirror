@@ -1,3 +1,5 @@
+falalala
+
 # AGENTS.md
 
 This file provides guidance to Claude Code when working with this repository. Subdirectory CLAUDE.md files provide deeper context when you navigate into specific areas.
