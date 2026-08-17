@@ -1,7 +1,5 @@
 # Contributing to Trigger.dev
 
-small change
-
 Thank you for taking the time to contribute to Trigger.dev. Your involvement is not just welcomed, but we encourage it! 🚀
 
 Please take some time to read this guide to understand contributing best practices for Trigger.dev. Note that we use [vouch](https://github.com/mitchellh/vouch) to manage contributor trust, so you'll need to be vouched before opening a PR.
