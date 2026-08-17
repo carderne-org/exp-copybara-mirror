@@ -1,0 +1,43 @@
+name: Dispatch Copybara sync
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dispatch-copybara-sync
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      vars.REHEARSAL_ENABLE_COPYBARA == 'true' &&
+      (github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'Mono-RevId:'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Publication App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.PUBLICATION_APP_ID }}
+          private-key: ${{ secrets.PUBLICATION_APP_PRIVATE_KEY }}
+          owner: carderne-org
+          repositories: |
+            exp-copybara-mono
+            exp-copybara-mirror
+          permission-contents: write
+
+      - name: Dispatch the private sync worker
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PUBLIC_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api repos/carderne-org/exp-copybara-mono/dispatches \
+            --method POST \
+            --field event_type=copybara-public-push \
+            --field "client_payload[public_sha]=$PUBLIC_SHA"

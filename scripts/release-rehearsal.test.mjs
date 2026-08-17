@@ -23,7 +23,7 @@ const options = {
   publicRef: "refs/heads/main",
   mode: "stable",
   idempotencyKey: `${version}:${publicSha}`,
-  repository: "carderne-org/exp-super-mirror",
+  repository: "carderne-org/exp-copybara-mirror",
 };
 
 test("builds a deterministic and realistic stable release plan", () => {

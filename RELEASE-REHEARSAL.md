@@ -9,11 +9,11 @@ It cannot publish packages, images, charts, docs, releases, tags, attestations, 
 Set `REHEARSAL_ENABLE_RELEASE_REHEARSAL=true`. Choose a version already present in all releasable package manifests and `hosting/k8s/helm/Chart.yaml`. The branch ref must resolve exactly to the supplied SHA and the SHA must be on public `main`. Reset the gate to `false` after testing.
 
 ```bash
-PUBLIC_SHA="$(gh api repos/carderne-org/exp-super-mirror/git/ref/heads/main --jq .object.sha)"
-VERSION="$(gh api "repos/carderne-org/exp-super-mirror/contents/packages/cli-v3/package.json?ref=$PUBLIC_SHA" --jq .content | base64 --decode | jq -r .version)"
+PUBLIC_SHA="$(gh api repos/carderne-org/exp-copybara-mirror/git/ref/heads/main --jq .object.sha)"
+VERSION="$(gh api "repos/carderne-org/exp-copybara-mirror/contents/packages/cli-v3/package.json?ref=$PUBLIC_SHA" --jq .content | base64 --decode | jq -r .version)"
 
 gh workflow run release-rehearsal.yml \
-  --repo carderne-org/exp-super-mirror \
+  --repo carderne-org/exp-copybara-mirror \
   --ref main \
   -f version="$VERSION" \
   -f public_sha="$PUBLIC_SHA" \
@@ -39,7 +39,7 @@ node scripts/release-rehearsal-plan.mjs \
   --public-ref refs/heads/main \
   --mode stable \
   --idempotency-key "$VERSION:$PUBLIC_SHA" \
-  --repository carderne-org/exp-super-mirror \
+  --repository carderne-org/exp-copybara-mirror \
   --remote origin \
   --verify-remote
 ```

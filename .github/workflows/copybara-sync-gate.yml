@@ -1,0 +1,72 @@
+name: copybara-sync-gate
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull request check context
+        if: github.event_name == 'pull_request'
+        run: echo 'State is checked again against the live tips by merge queue.'
+
+      - name: Create read-only Publication App token
+        if: github.event_name == 'merge_group'
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.PUBLICATION_APP_ID }}
+          private-key: ${{ secrets.PUBLICATION_APP_PRIVATE_KEY }}
+          owner: carderne-org
+          repositories: |
+            exp-copybara-mono
+            exp-copybara-mirror
+          permission-contents: read
+
+      - name: Wait for pending mono changes
+        if: github.event_name == 'merge_group'
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          MONO_BASELINE: ${{ vars.COPYBARA_MONO_BASELINE }}
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-tags \
+            "https://x-access-token:${APP_TOKEN}@github.com/carderne-org/exp-copybara-mirror.git" public
+          git clone --filter=blob:none --no-tags \
+            "https://x-access-token:${APP_TOKEN}@github.com/carderne-org/exp-copybara-mono.git" mono
+
+          for _ in $(seq 1 60); do
+            git -C public fetch --no-tags origin main
+            git -C mono fetch --no-tags origin main
+            mono_rev="$(git -C public log -1 --format=%B \
+              --grep='^Mono-RevId: [0-9a-f]\{40\}$' origin/main \
+              | grep -m1 -E '^Mono-RevId: [0-9a-f]{40}$' | cut -d' ' -f2 || true)"
+            mono_rev="${mono_rev:-$MONO_BASELINE}"
+            [[ "$mono_rev" =~ ^[0-9a-f]{40}$ ]] || {
+              echo 'No Mono-RevId or configured baseline found.' >&2
+              exit 1
+            }
+            git -C mono cat-file -e "${mono_rev}^{commit}"
+
+            pending=''
+            while read -r commit; do
+              [[ -z "$commit" ]] && continue
+              if ! git -C mono show -s --format=%B "$commit" | grep -q -E '^OSS-RevId: [0-9a-f]{40}$'; then
+                pending+="$commit "
+              fi
+            done < <(git -C mono rev-list "${mono_rev}..origin/main" -- oss/)
+
+            if [[ -z "$pending" ]]; then
+              echo 'No unsynced mono oss/ commits.'
+              exit 0
+            fi
+            echo "Waiting for mono commits: $pending"
+            sleep 10
+          done
+          echo 'Timed out waiting for mono-to-public sync.' >&2
+          exit 1

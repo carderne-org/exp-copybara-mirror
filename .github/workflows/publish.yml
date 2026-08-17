@@ -65,7 +65,7 @@ jobs:
 
   publish-webapp:
     needs: [typecheck]
-    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
+    if: github.repository == 'carderne-org/exp-copybara-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
     permissions:
       contents: read
       packages: write
@@ -82,7 +82,7 @@ jobs:
 
   publish-worker-v4:
     needs: [typecheck]
-    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
+    if: github.repository == 'carderne-org/exp-copybara-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true'
     permissions:
       contents: read
       packages: write
@@ -124,7 +124,7 @@ jobs:
   dispatch-main-image:
     name: 📣 Dispatch main image
     needs: [publish-webapp]
-    if: github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true' && github.event_name == 'push' && startsWith(github.ref_name, vars.MAIN_IMAGE_DISPATCH_REF_PREFIX || 'main')
+    if: github.repository == 'carderne-org/exp-copybara-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true' && github.event_name == 'push' && startsWith(github.ref_name, vars.MAIN_IMAGE_DISPATCH_REF_PREFIX || 'main')
     runs-on: warp-ubuntu-latest-x64-2x
     permissions: {}
     steps:

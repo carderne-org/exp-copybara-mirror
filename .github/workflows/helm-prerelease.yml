@@ -75,7 +75,7 @@ jobs:
     # on the owner's charts namespace. Defaults to enabled; the lint-and-test
     # job above always runs regardless.
     if: |
-      github.repository == 'carderne-org/exp-super-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true' &&
+      github.repository == 'carderne-org/exp-copybara-mirror' && vars.REHEARSAL_ENABLE_SIDE_EFFECTS == 'true' &&
       vars.ENABLE_HELM_PRERELEASE != 'false' &&
       ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       github.event_name == 'push' ||
