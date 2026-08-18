@@ -1,0 +1,43 @@
+name: Prune generated sync PR checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  prune:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'repoops-write[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'copybara/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel unrelated workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 12); do
+            runs="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100")"
+            while IFS=$'\t' read -r id name; do
+              [[ -z "$id" ]] && continue
+              echo "Cancelling unrelated run ${id}: ${name}"
+              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel" \
+                --method POST >/dev/null 2>&1 || true
+            done < <(jq -r --arg current "$GITHUB_RUN_ID" '
+              .workflow_runs[]
+              | select(.status != "completed")
+              | select((.id | tostring) != $current)
+              | select(.path != ".github/workflows/copybara-sync-gate.yml")
+              | select(.path != ".github/workflows/copybara-pr-prune.yml")
+              | [.id, .name]
+              | @tsv
+            ' <<<"$runs")
+            sleep 5
+          done
