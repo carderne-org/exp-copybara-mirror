@@ -11,39 +11,48 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
       - name: Pull request check context
         if: github.event_name == 'pull_request'
         run: echo 'State is checked again against the live tips by merge queue.'
 
-      - name: Create read-only Publication App token
+      - name: Create read-only RepoOps Dispatch token
         if: github.event_name == 'merge_group'
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.PUBLICATION_APP_ID }}
-          private-key: ${{ secrets.PUBLICATION_APP_PRIVATE_KEY }}
+          app-id: ${{ vars.REPO_OPS_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.REPO_OPS_DISPATCH_PRIVATE_KEY }}
           owner: carderne-org
-          repositories: |
-            exp-copybara-mono
-            exp-copybara-mirror
           permission-contents: read
 
-      - name: Wait for pending mono changes
+      - name: Validate the live merge candidate
         if: github.event_name == 'merge_group'
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           MONO_BASELINE: ${{ vars.COPYBARA_MONO_BASELINE }}
+          MONO_REPOSITORY: ${{ secrets.COPYBARA_MONO_REPOSITORY }}
         run: |
           set -euo pipefail
+          [[ "$MONO_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
           git clone --filter=blob:none --no-tags \
-            "https://x-access-token:${APP_TOKEN}@github.com/carderne-org/exp-copybara-mirror.git" public
-          git clone --filter=blob:none --no-tags \
-            "https://x-access-token:${APP_TOKEN}@github.com/carderne-org/exp-copybara-mono.git" mono
+            "https://x-access-token:${APP_TOKEN}@github.com/${MONO_REPOSITORY}.git" mono
 
+          candidate_tree="$(git rev-parse 'HEAD^{tree}')"
           for _ in $(seq 1 60); do
-            git -C public fetch --no-tags origin main
+            git fetch --no-tags origin main
             git -C mono fetch --no-tags origin main
-            mono_rev="$(git -C public log -1 --format=%B \
+            mono_tree="$(git -C mono rev-parse 'origin/main:oss')"
+
+            if [[ "$candidate_tree" == "$mono_tree" ]]; then
+              echo 'Generated public sync candidate exactly matches mono oss/.'
+              exit 0
+            fi
+
+            mono_rev="$(git log -1 --format=%B \
               --grep='^Mono-RevId: [0-9a-f]\{40\}$' origin/main \
               | grep -m1 -E '^Mono-RevId: [0-9a-f]{40}$' | cut -d' ' -f2 || true)"
             mono_rev="${mono_rev:-$MONO_BASELINE}"
@@ -56,7 +65,8 @@ jobs:
             pending=''
             while read -r commit; do
               [[ -z "$commit" ]] && continue
-              if ! git -C mono show -s --format=%B "$commit" | grep -q -E '^OSS-RevId: [0-9a-f]{40}$'; then
+              if ! git -C mono show -s --format=%B "$commit" \
+                | grep -q -E '^OSS-RevId: [0-9a-f]{40}$'; then
                 pending+="$commit "
               fi
             done < <(git -C mono rev-list "${mono_rev}..origin/main" -- oss/)
