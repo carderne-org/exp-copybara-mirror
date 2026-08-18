@@ -17,25 +17,24 @@ jobs:
     if: vars.REHEARSAL_ENABLE_COPYBARA == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Create Publication App token
+      - name: Create RepoOps Dispatch token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.PUBLICATION_APP_ID }}
-          private-key: ${{ secrets.PUBLICATION_APP_PRIVATE_KEY }}
+          app-id: ${{ vars.REPO_OPS_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.REPO_OPS_DISPATCH_PRIVATE_KEY }}
           owner: carderne-org
-          repositories: |
-            exp-copybara-mono
-            exp-copybara-mirror
           permission-contents: write
 
       - name: Dispatch the private sync worker
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PUBLIC_SHA: ${{ github.sha }}
+          MONO_REPOSITORY: ${{ secrets.COPYBARA_MONO_REPOSITORY }}
         run: |
           set -euo pipefail
-          gh api repos/carderne-org/exp-copybara-mono/dispatches \
+          [[ "$MONO_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          gh api "repos/${MONO_REPOSITORY}/dispatches" \
             --method POST \
             --field event_type=copybara-public-push \
             --field "client_payload[public_sha]=$PUBLIC_SHA"
